@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ISRO Autonomous Rover Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;700&display=swap');
+        
+        /* Dark Color Scheme */
+        :root {
+            --color-primary: #87CEEB;
+            --color-nominal: #87CEEB;
+            --color-text: #e0e0e0;
+            --color-critical: #FF6961;
+            --color-warning: #FFD700;
+            --color-background: #121212;
+            --color-card: #1e1e1e;
+            --color-border: #333333;
+            --color-shadow: rgba(0, 0, 0, 0.4);
+        }
+
+        /* General Styles */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--color-background);
+            color: var(--color-text);
+            line-height: 1.5;
+        }
+        .data-card {
+            background-color: var(--color-card);
+            border: 1px solid var(--color-border);
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px var(--color-shadow);
+        }
+        .alert-critical { color: var(--color-critical); }
+        .alert-warning { color: var(--color-warning); }
+        .alert-nominal { color: var(--color-nominal); font-family: 'Space Mono', monospace; }
+        .data-label { color: #888888; }
+        .data-value { font-family: 'Space Mono', monospace; }
+        .progress-bar { height: 10px; background-color: #333333; border-radius: 5px; overflow: hidden; }
+        .progress-fill { height: 100%; transition: width 0.5s ease-out; }
+        .btn-command { background-color: var(--color-nominal); transition: background-color 0.2s; }
+        .btn-command:hover { background-color: #6699CC; }
+        #mission-logs { 
+            max-height: 600px; 
+            overflow-y: scroll; 
+            -ms-overflow-style: none; 
+            scrollbar-width: none;
+            padding-right: 1rem;
+        }
+        #mission-logs::-webkit-scrollbar { display: none; }
+        .log-entry { border-color: #444444; }
+
+        /* Dashboard Grid */
+        .dashboard-grid {
+            display: grid;
+            gap: 1.5rem;
+            grid-template-areas:
+                "header header header"
+                "telemetry map logs"
+                "system map logs"
+                "status status status";
+            grid-template-columns: 1fr 2fr 1fr;
+            padding: 1.5rem;
+            min-height: calc(100vh - 4rem);
+        }
+        @media (max-width: 1024px) {
+            .dashboard-grid {
+                grid-template-areas: "header" "telemetry" "system" "map" "logs" "status";
+                grid-template-columns: 1fr;
+                gap: 1rem;
+                padding: 1rem;
+            }
+        }
+        
+        /* Map/Lidar Styles */
+        .map-container { position: relative; overflow: hidden; min-height: 400px; }
+        .survey-area { position: absolute; width: 150px; height: 150px; background-color: #1a1a1a; border: 2px dashed #6b7280; border-radius: 10px; box-shadow: 0 0 15px #87CEEB33; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #9ca3af; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        .rover { position: absolute; width: 20px; height: 20px; background-color: var(--color-nominal); border-radius: 50%; box-shadow: 0 0 10px var(--color-nominal); top: 50%; left: 50%; transform: translate(0px, 0px); transition: transform 0.5s linear; z-index: 10; }
+        .rover-path { position: absolute; width: 5px; height: 5px; background-color: var(--color-warning); border-radius: 50%; opacity: 0.7; z-index: 5; }
+
+        /* LIDAR Specific Styles */
+        .lidar-map { background-color: #0d0d0d; border: 2px solid #00F0FF; }
+        .lidar-grid-lines { position: absolute; inset: 0; background-size: 50px 50px; background-image: linear-gradient(to right, #00F0FF 1px, transparent 1px), linear-gradient(to bottom, #00F0FF 1px, transparent 1px); opacity: 0.1; }
+        .scan-line-v { position: absolute; top: 0; left: 50%; width: 2px; height: 100%; background: linear-gradient(to bottom, transparent, var(--color-critical), transparent); animation: scan-v 4s infinite linear; }
+        .scan-line-h { position: absolute; top: 50%; left: 0; width: 100%; height: 2px; background: linear-gradient(to right, transparent, var(--color-critical), transparent); animation: scan-h 3s infinite linear; }
+        .lidar-signal { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--color-critical); font-size: 1.5rem; animation: blink 1s infinite; }
+        @keyframes scan-v { 0% { transform: translateX(-400%); } 100% { transform: translateX(400%); } }
+        @keyframes scan-h { 0% { transform: translateY(-400%); } 100% { transform: translateY(400%); } }
+        @keyframes blink { 50% { opacity: 0.2; } }
+        .system-table td, .system-table th { padding: 0.5rem; border-bottom: 1px solid #333; }
+        .system-table tr:last-child td { border-bottom: none; }
+        .sensor-card-link { cursor: pointer; }
+
+        /* Camera Feed specific styles */
+        .camera-feed-container {
+            position: relative;
+            background: linear-gradient(to bottom, #3b3b3b, #121212);
+            overflow: hidden;
+            border-radius: 0.5rem;
+            border: 2px solid #444;
+            height: 100%;
+        }
+        .camera-feed-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.8;
+            filter: grayscale(100%);
+        }
+        .camera-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Space Mono', monospace;
+            color: #fff;
+            text-shadow: 0 0 5px rgba(0,0,0,0.8);
+        }
+        .camera-info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 0.75rem;
+            color: #ddd;
+        }
+        .object-detection {
+            position: absolute;
+            border: 2px solid #FFD700;
+            color: #FFD700;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 2px 5px;
+            font-size: 0.8rem;
+            white-space: nowrap;
+            transition: all 0.5s ease-out;
+            box-shadow: 0 0 5px #FFD700;
+        }
+        .text-green-400 { color: #4ade80; }
+        .text-red-400 { color: #f87171; }
+        .text-yellow-300 { color: #fcd34d; }
+
+    </style>
+</head>
+<body class="antialiased">
+
+    <div id="sensor-alert-banner" class="hidden bg-red-800 text-white font-bold p-3 text-center transition-all duration-300 shadow-2xl z-50">
+        <span class="mr-3">⚠️ CRITICAL SENSOR FAILURE!</span> 
+        <span id="alert-sensor-list" class="font-mono text-yellow-300"></span> 
+        <span class="ml-4">Autonomy **HALTED**. Click "Initiate Manual Control" to resume.</span>
+    </div>
+
+    <nav class="bg-gray-900 shadow-lg border-b border-gray-700 p-3 flex justify-center space-x-6">
+        <button id="nav-dashboard" onclick="renderView('dashboard')" class="px-4 py-2 text-sm font-bold text-gray-400 hover:text-blue-400 rounded-lg">
+            Dashboard
+        </button>
+        <button id="nav-monitoring" onclick="renderView('monitoring')" class="px-4 py-2 text-sm font-bold text-gray-400 hover:text-blue-400 rounded-lg">
+            System Monitoring
+        </button>
+        <button id="nav-map" onclick="renderView('map')" class="px-4 py-2 text-sm font-bold text-gray-400 hover:text-blue-400 rounded-lg">
+            Mapping & LIDAR
+        </button>
+        <button id="nav-camera" onclick="renderView('camera')" class="px-4 py-2 text-sm font-bold text-gray-400 hover:text-blue-400 rounded-lg">
+            Camera Feed
+        </button>
+        <button id="nav-history" onclick="renderView('history')" class="px-4 py-2 text-sm font-bold text-gray-400 hover:text-blue-400 rounded-lg">
+            Data History
+        </button>
+        <button id="nav-emergency" onclick="renderView('emergency')" class="px-4 py-2 text-sm font-bold text-gray-400 hover:text-red-400 rounded-lg">
+            Emergency
+        </button>
+    </nav>
+    
+    <div id="view-dashboard" class="dashboard-grid">
+
+        <header class="p-4 data-card flex items-center justify-between col-span-full" style="grid-area: header;">
+            <div class="flex items-center space-x-4">
+                <img src="https://placehold.co/60x60/1e1e1e/87CEEB?text=ISRO" alt="ISRO Logo" class="h-10 w-10 rounded-full border-2 border-gray-600">
+                <div class="text-3xl font-bold text-gray-200">
+                    <span class="text-gray-400">ROVER</span> <span class="alert-nominal">AUTONOMY CONTROL</span>
+                </div>
+            </div>
+            
+            <div class="flex space-x-6 text-sm">
+                 <div class="text-right">
+                    <div class="data-label">TIME (IST)</div>
+                    <div id="time-ist" class="text-xl font-bold text-gray-200">--:--:--</div>
+                </div>
+                <div class="text-right">
+                    <div class="data-label">TIME (UTC)</div>
+                    <div id="time-utc" class="text-xl font-bold text-gray-200">--:--:--</div>
+                </div>
+                <div class="text-right">
+                    <div class="data-label">ROVER STATUS</div>
+                    <div id="mission-status" class="text-lg font-bold alert-nominal data-value">IDLE (SURFACE)</div>
+                    <div id="met" class="text-xs data-label mt-1">MET: 00:00:00:00</div>
+                </div>
+            </div>
+        </header>
+
+        <div id="telemetry-panel" class="data-card p-4 lg:p-6" style="grid-area: telemetry;">
+            <h2 class="text-xl text-gray-200 border-b border-gray-700 pb-2 mb-4">NAVIGATION & LOCAL DATA</h2>
+            <div class="space-y-4">
+                <div class="metric">
+                    <div class="text-sm data-label">CURRENT SPEED</div>
+                    <div id="speed" class="text-4xl font-extrabold alert-nominal data-value">0.00 <span class="text-lg font-light">m/s</span></div>
+                </div>
+                <div class="metric">
+                    <div class="text-sm data-label">DISTANCE TRAVELED</div>
+                    <div id="distance-traveled" class="text-4xl font-extrabold alert-nominal data-value">0.00 <span class="text-lg font-light">m</span></div>
+                </div>
+                <div class="metric">
+                    <div class="text-sm data-label">TILT / ROLL ANGLE</div>
+                    <div id="tilt-roll" class="text-4xl font-extrabold alert-nominal data-value">0.00 <span class="text-lg font-light">&deg;</span></div>
+                </div>
+                <div class="metric">
+                    <div class="text-sm data-label">LOCAL TEMP</div>
+                    <div id="local-temp" class="text-2xl font-bold alert-nominal data-value">25.0 &deg;C</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="system-panel" class="data-card p-4 lg:p-6" style="grid-area: system;">
+            <h2 class="text-xl text-gray-200 border-b border-gray-700 pb-2 mb-4">ENERGY & ENVIRONMENT</h2>
+            <div class="space-y-4">
+                
+                <div class="system-status">
+                    <div class="flex justify-between items-center text-sm data-label">
+                        <span>MAIN BATTERY LEVEL</span>
+                        <span id="battery-value" class="alert-nominal font-bold data-value">100%</span>
+                    </div>
+                    <div class="progress-bar mt-1">
+                        <div id="battery-bar" class="progress-fill" style="width: 100%; background-color: var(--color-warning);"></div>
+                    </div>
+                </div>
+                
+                <div class="system-status">
+                    <div class="flex justify-between items-center text-sm data-label">
+                        <span>O$_{2}$ SENSOR LEVEL</span>
+                        <span id="o2-value" class="alert-nominal font-bold data-value">21.0%</span>
+                    </div>
+                    <div class="progress-bar mt-1">
+                        <div id="o2-bar" class="progress-fill" style="width: 100%; background-color: #00ffaa;"></div>
+                    </div>
+                </div>
+
+                <div class="system-status">
+                    <div class="flex justify-between items-center text-sm data-label">
+                        <span>MAPPING PROGRESS</span>
+                        <span id="mapping-value" class="alert-nominal font-bold data-value">0%</span>
+                    </div>
+                    <div class="progress-bar mt-1">
+                        <div id="mapping-bar" class="progress-fill" style="width: 0%; background-color: #00F0FF;"></div>
+                    </div>
+                </div>
+
+                <div class="system-status">
+                    <div class="flex justify-between items-center text-sm data-label">
+                        <span>CORE TEMP (CPU)</span>
+                        <span id="temp-value" class="alert-nominal font-bold data-value">25.0 °C</span>
+                    </div>
+                    <div class="progress-bar mt-1">
+                        <div id="temp-bar" class="progress-fill" style="width: 30%; background-color: var(--color-warning);"></div>
+                    </div>
+                </div>
+                
+                <h3 class="text-lg font-bold text-gray-200 border-b border-gray-700 pb-2 mb-2 pt-2">SENSOR HEALTH MONITORING</h3>
+                <div class="grid grid-cols-2 gap-2 text-sm">
+                    <div class="data-label">LIDAR: <span id="lidar-health" class="alert-nominal data-value">OPERATIONAL</span></div>
+                    <div class="data-label">CAMERA: <span id="camera-health" class="alert-nominal data-value">OPERATIONAL</span></div>
+                    <div class="data-label">O$_{2}$ SENSOR: <span id="o2-sensor-health" class="alert-nominal data-value">OPERATIONAL</span></div>
+                    <div class="data-label">THERMAL: <span id="thermal-health" class="alert-nominal data-value">OPERATIONAL</span></div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 pt-2">
+                    <div>
+                        <div class="text-sm data-label">COMM STATUS</div>
+                        <div id="comm-status" class="text-2xl font-bold alert-nominal data-value">LINK ESTABLISHED</div>
+                    </div>
+                    <div>
+                        <div class="text-sm data-label">AUTONOMY MODE</div>
+                        <div id="guidance-mode" class="text-2xl font-bold alert-nominal data-value">IDLE</div>
+                    </div>
+                </div>
+                
+            </div>
+        </div>
+
+        <div id="map-visual-dashboard" class="data-card p-0 relative flex flex-col justify-end" style="grid-area: map;">
+            
+            <div class="absolute top-4 left-4 right-4 flex justify-between items-center z-20">
+                <h2 class="text-xl text-gray-200 px-2">LOCAL NAVIGATION</h2>
+                <div class="bg-gray-800 p-1 rounded-full flex space-x-1 shadow-md">
+                    <button id="tab-map-dash" onclick="switchMapTab('map')" class="px-3 py-1 text-xs font-bold rounded-full bg-blue-600 text-white shadow-inner">Map/Path View</button>
+                    <button id="tab-lidar-dash" onclick="switchMapTab('lidar')" class="px-3 py-1 text-xs font-bold rounded-full text-gray-400 hover:bg-gray-700">LIDAR Scan</button>
+                </div>
+            </div>
+
+            <div id="map-view-content-dash" class="w-full h-full absolute inset-0 flex items-center justify-center p-6 map-container">
+                <div class="survey-area">CURRENT SURVEY AREA (SIMULATED)</div>
+                <div id="rover-path-container" class="absolute inset-0"></div>
+                <div class="rover" id="rover-marker"></div>
+                
+                <div class="absolute bottom-4 left-4 text-sm data-label z-10 p-2 bg-gray-900/70 rounded-lg shadow-lg">
+                    <div class="font-bold text-gray-200 mb-1">CURRENT POSITION</div>
+                    POS: LAT <span id="lat-data" class="alert-nominal data-value">0.0000</span>° N<br>
+                    LONG <span id="long-data" class="alert-nominal data-value">0.0000</span>° E
+                </div>
+                
+                <div class="absolute top-4 right-4 text-sm data-label text-right z-10 mt-12">
+                    TARGET: <span class="text-yellow-500 font-bold">SAMPLE POINT ALPHA</span>
+                </div>
+            </div>
+
+            <div id="lidar-view-content-dash" class="w-full h-full absolute inset-0 hidden p-6 lidar-map flex flex-col items-center justify-center">
+                <div class="text-white text-sm mb-2 w-full text-left data-value">
+                    <span class="text-red-500 font-bold">LIDAR DEPTH MAP</span> | RANGE: <span id="lidar-range-dash" class="text-yellow-500">0.00 m</span>
+                </div>
+                <div id="lidar-display-dash" class="w-full h-full border border-red-700 overflow-hidden relative">
+                    <div class="lidar-grid-lines"></div>
+                    <div class="scan-line-v"></div>
+                    <div class="scan-line-h"></div>
+                    <div class="lidar-signal" id="lidar-signal-dash">... SCANNING ...</div>
+                </div>
+            </div>
+
+        </div>
+
+        <div id="logs-panel" class="data-card p-4 lg:p-6 flex flex-col" style="grid-area: logs;">
+            <h2 class="text-xl text-gray-200 border-b border-gray-700 pb-2 mb-4 flex justify-between items-center">
+                AUTONOMY LOGS
+                <span id="log-count" class="text-sm text-gray-400">(0 entries)</span>
+            </h2>
+            <div id="mission-logs" class="flex-grow space-y-2 text-sm">
+                </div>
+        </div>
+
+        <div id="command-status-bar" class="data-card p-4 flex items-center justify-between col-span-full" style="grid-area: status;">
+            <div class="text-lg text-gray-200">
+                LAST COMMAND: <span id="last-command" class="alert-nominal font-bold data-value">INITIATE HEALTH CHECK</span>
+            </div>
+            <div class="flex space-x-4">
+                <button id="toggle-sim-btn" class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition duration-200 flex items-center" onclick="toggleAutonomy()">
+                    <svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197 2.132A1 1 0 0110 13.912V10.088a1 1 0 011.555-.832l3.197 2.132a1 1 0 010 1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <span id="toggle-sim-text">Start Autonomy</span>
+                </button>
+                <button id="manual-control-btn" class="px-6 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg transition duration-200 flex items-center" onclick="manualOverride('MANUAL_CONTROL')">
+                    <svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414l2.828 2.828m-2.828-9.414l-.707-.707m-5.115 5.115l-1.414 1.414m-1.414-1.414l1.414 1.414m5.115-5.115l2.828 2.828m-2.828-2.828L18 7m-7 7l-1.414 1.414m-1.414-1.414l1.414 1.414m5.115-5.115l2.828 2.828m-2.828-2.828L18 7"></path></svg>
+                    <span id="manual-control-text">Initiate Manual Control</span>
+                </button>
+                <button class="px-6 py-2 btn-command hover:opacity-90 text-white font-bold rounded-lg transition duration-200 flex items-center" onclick="manualOverride('START_MAPPING')">
+                    <svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l4-2V20M9 6h7M9 18h7"></path></svg>
+                    <span>Start Mapping Sequence</span>
+                </button>
+                <button class="px-6 py-2 btn-command hover:opacity-90 text-white font-bold rounded-lg transition duration-200 flex items-center" onclick="manualOverride('RETURN_TO_BASE')">
+                    <svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                    <span>Return to Base</span>
+                </button>
+                <button class="px-6 py-2 bg-red-700 hover:bg-red-800 text-white font-bold rounded-lg transition duration-200 flex items-center" onclick="emergencyStop()">
+                    <svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L12 12m0 0L5.636 5.636m6.364 6.364l6.364-6.364M12 12l6.364-6.364M12 12L5.636 5.636"></path></svg>
+                    <span>EMERGENCY STOP</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="view-map" class="hidden p-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[80vh]">
+            <div id="map-view-content-map" class="col-span-2 data-card p-4 map-container">
+                <h2 class="text-2xl text-gray-200 border-b border-gray-700 pb-2 mb-4">GLOBAL MAP & PATH TRACKING</h2>
+                
+                <div class="h-full relative flex items-center justify-center">
+                    <div class="survey-area w-[80%] h-[80%] text-lg">
+                        AUTONOMOUS NAVIGATION FIELD (500m x 500m)
+                    </div>
+                    <div id="rover-path-container-map" class="absolute inset-0"></div>
+                    <div class="rover" id="rover-marker-map"></div>
+                </div>
+            </div>
+            
+            <div id="lidar-view-content-map" class="col-span-1 data-card p-4 lidar-map flex flex-col">
+                <h2 class="text-2xl text-white border-b border-gray-700 pb-2 mb-4">LIDAR SENSOR FEED</h2>
+                <div class="text-white text-sm mb-4 w-full text-left data-value">
+                    <span class="text-red-500 font-bold">ACTIVE RANGE FINDER</span> | CURRENT RANGE: <span id="lidar-range-map" class="text-yellow-500">0.00 m</span>
+                </div>
+                <div class="flex-grow w-full border border-red-700 overflow-hidden relative">
+                    <div class="lidar-grid-lines"></div>
+                    <div class="scan-line-v"></div>
+                    <div class="scan-line-h"></div>
+                    <div class="lidar-signal" id="lidar-signal-map">... ACTIVE SCAN ...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="view-camera" class="hidden p-6">
+        <h2 class="text-3xl text-gray-200 border-b border-gray-700 pb-4 mb-6">Primary Camera Feed & Analysis</h2>
+        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 h-[80vh]">
+            
+            <div class="lg:col-span-2 data-card p-4 camera-feed-container">
+                <div class="camera-info">
+                    <div id="camera-status-overlay" class="font-bold text-lg text-green-400">FEED ACTIVE</div>
+                    <div id="camera-res" class="text-xs">Resolution: 1024x768</div>
+                    <div id="camera-fps" class="text-xs">Framerate: 15 fps</div>
+                </div>
+                <img id="camera-live-feed" src="https://placehold.co/1024x768/000000/444444?text=SIMULATED%20CAMERA%20FEED" class="camera-feed-image">
+                <div class="camera-overlay">
+                    <div id="detected-object" class="object-detection hidden">
+                        <span id="object-label"></span><br>
+                        <span id="object-dist"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="data-card p-6">
+                <h3 class="text-xl font-bold alert-nominal mb-4">CAMERA SYSTEM HEALTH</h3>
+                <div class="space-y-4">
+                    <div>
+                        <div class="data-label">SENSOR STATUS</div>
+                        <div id="cam-health" class="text-2xl font-bold alert-nominal data-value">OPERATIONAL</div>
+                    </div>
+                    <div class="progress-bar">
+                        <div id="cam-temp-bar" class="progress-fill" style="width: 30%; background-color: var(--color-warning);"></div>
+                    </div>
+                    <div>
+                        <div class="data-label">SENSOR TEMPERATURE</div>
+                        <div id="cam-temp" class="text-2xl font-bold alert-nominal data-value">25.0 °C</div>
+                    </div>
+                    <div class="mt-6 pt-4 border-t border-gray-700">
+                        <h4 class="text-lg font-bold text-gray-200 mb-3">CAMERA CONTROLS</h4>
+                        <button class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition duration-200 block w-full text-center" onclick="manualOverride('CAPTURE_IMAGE')">
+                            <svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                            <span>Capture High-Res Image</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-history" class="hidden p-6">
+        <h2 class="text-3xl text-gray-200 border-b border-gray-700 pb-4 mb-6">Historical Telemetry & Trends</h2>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <div class="data-card p-6">
+                <h3 class="text-xl font-bold alert-nominal mb-4">Battery & Power Trend</h3>
+                <div class="text-gray-500 h-40 flex items-center justify-center bg-gray-800 rounded-lg">
+                    [Mock Chart: Battery % vs. MET]
+                </div>
+                <p class="mt-4 text-sm text-gray-400">Observation: Battery depletion is nominal during MAPPING mode, requiring a recharge cycle every 5 Sols.</p>
+            </div>
+            
+            <div class="data-card p-6">
+                <h3 class="text-xl font-bold alert-nominal mb-4">Tilt Angle vs. Distance</h3>
+                <div class="text-gray-500 h-40 flex items-center justify-center bg-gray-800 rounded-lg">
+                    [Mock Chart: Max Tilt Angle vs. Distance Traveled]
+                </div>
+                <p class="mt-4 text-sm text-gray-400">Observation: Max tilt reached $18.5^\circ$ at 125m mark, triggering three HAZARD-AVOIDANCE events.</p>
+            </div>
+            
+            <div class="data-card p-6">
+                <h3 class="text-xl font-bold alert-nominal mb-4">O$_{2}$ & Temperature Log</h3>
+                <div class="text-gray-500 h-40 flex items-center justify-center bg-gray-800 rounded-lg">
+                    [Mock Chart: O$_{2}$ and Local Temp Over 24 Hours]
+                </div>
+                <p class="mt-4 text-sm text-gray-400">Observation: $\text{O}_2$ remains stable at $21.0 \pm 0.1\%$. Local temperature variance exceeds expected thermal range.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-emergency" class="hidden p-6">
+        <h2 class="text-3xl font-extrabold alert-critical border-b border-red-800 pb-4 mb-6">EMERGENCY OPERATIONS COMMAND</h2>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 data-card p-6 bg-red-950 border-red-700 shadow-xl">
+                <h3 class="text-2xl font-bold alert-critical mb-4">CRITICAL SYSTEM OVERVIEW</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="border-l-4 border-red-500 pl-3">
+                        <div class="data-label">IMPACTED SUBSYSTEM</div>
+                        <div id="emergency-subsystem" class="text-3xl font-extrabold alert-critical data-value">NOMINAL</div>
+                    </div>
+                    <div class="border-l-4 border-red-500 pl-3">
+                        <div class="data-label">FAILURE CODE</div>
+                        <div id="failure-code" class="text-3xl font-extrabold alert-critical data-value">ALL_SYSTEMS_GO</div>
+                    </div>
+                </div>
+                
+                <p id="emergency-message" class="mt-8 text-xl font-bold text-red-400 bg-red-900 p-4 rounded-lg">
+                    ALL SYSTEMS NOMINAL. EMERGENCY VIEW IS FOR MONITORING ONLY.
+                </p>
+
+                <div class="mt-8 pt-4 border-t border-red-700">
+                    <h4 class="text-lg font-bold text-gray-200 mb-3">PRIORITY ACTIONS:</h4>
+                    <div class="flex space-x-4">
+                        <button class="px-6 py-3 bg-red-800 hover:bg-red-900 text-white font-bold rounded-lg transition duration-200 flex items-center" onclick="manualOverride('REBOOT_COMM')">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0l-2.83-2.83m2.83 2.83L7.5 5.5"></path></svg>
+                            <span>REBOOT COMMUNICATIONS MODULE</span>
+                        </button>
+                        <button class="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition duration-200" onclick="manualOverride('LOWER_POWER_MODE')">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                            <span>ACTIVATE LOW POWER MODE</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="data-card p-6">
+                <h3 class="text-xl font-bold text-gray-200 mb-4">Current Diagnostics</h3>
+                 <div class="border-l-4 border-yellow-500 pl-3 mb-4">
+                    <div class="data-label">LAST BATTERY REPORT</div>
+                    <div id="emergency-battery" class="text-2xl font-extrabold text-yellow-500 data-value">99.0%</div>
+                </div>
+                <div class="border-l-4 border-orange-500 pl-3 mb-4">
+                    <div class="data-label">TILT ANGLE</div>
+                    <div id="emergency-tilt" class="text-2xl font-extrabold text-orange-500 data-value">0.00°</div>
+                </div>
+                <div class="border-l-4 border-red-500 pl-3">
+                    <div class="data-label">CORE TEMP (CRITICAL)</div>
+                    <div id="emergency-temp" class="text-2xl font-extrabold alert-critical data-value">25.0°C</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="view-monitoring" class="hidden p-6">
+        <h2 class="text-3xl text-gray-200 border-b border-gray-700 pb-4 mb-6">Rover Health & System Monitoring</h2>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+            
+            <div class="data-card p-6 col-span-1">
+                <h3 class="text-xl font-bold alert-nominal mb-4">CURRENT TELEMETRY SNAPSHOT</h3>
+                <div class="space-y-4">
+                    <div>
+                        <div class="data-label">Current Speed</div>
+                        <div id="mon-speed" class="text-2xl font-bold alert-nominal data-value">0.00 m/s</div>
+                    </div>
+                    <div>
+                        <div class="data-label">Tilt / Roll Angle</div>
+                         <div id="mon-tilt-roll" class="text-2xl font-bold alert-nominal data-value">0.00 °</div>
+                    </div>
+                    <div>
+                        <div class="data-label">Local Temperature</div>
+                         <div id="mon-local-temp" class="text-2xl font-bold alert-nominal data-value">-100.0 °C</div>
+                    </div>
+                    <div>
+                        <div class="data-label">O₂ Gas Concentration</div>
+                         <div id="mon-o2-value" class="text-2xl font-bold alert-nominal data-value">21.0%</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="data-card p-6 col-span-1">
+                <h3 class="text-xl font-bold alert-nominal mb-4">SYSTEMS SUMMARY</h3>
+                <div class="space-y-6">
+                    <div>
+                        <div class="flex justify-between items-center text-sm data-label">
+                            <span>MAIN BATTERY LEVEL</span>
+                            <span id="mon-battery-value" class="alert-nominal font-bold data-value">100%</span>
+                        </div>
+                        <div class="progress-bar mt-1">
+                            <div id="mon-battery-bar" class="progress-fill" style="width: 100%; background-color: var(--color-warning);"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center text-sm data-label">
+                            <span>CORE TEMP (CPU)</span>
+                            <span id="mon-temp-value" class="alert-nominal font-bold data-value">25.0 °C</span>
+                        </div>
+                        <div class="progress-bar mt-1">
+                            <div id="mon-temp-bar" class="progress-fill" style="width: 30%; background-color: var(--color-warning);"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center text-sm data-label">
+                            <span>MAPPING PROGRESS</span>
+                            <span id="mon-mapping-value" class="alert-nominal font-bold data-value">0%</span>
+                        </div>
+                        <div class="progress-bar mt-1">
+                            <div id="mon-mapping-bar" class="progress-fill" style="width: 0%; background-color: #00F0FF;"></div>
+                        </div>
+                    </div>
+                    <div class="mt-6 pt-4 border-t border-gray-700">
+                        <div class="data-label">AUTONOMY AI HEALTH</div>
+                        <div id="ai-health" class="text-2xl font-bold alert-nominal data-value">OPTIMAL</div>
+                        <div class="mt-2 text-sm text-gray-400">
+                            - **Reasoning Cycles:** 125/sec (Nominal)
+                        </div>
+                        <div id="ai-status-detail" class="text-sm text-green-400 mt-2">
+                            Self-diagnosis reports no anomalies.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="data-card p-6 col-span-1">
+                <h3 class="text-xl font-bold alert-nominal mb-4">SENSOR OPERATIONAL STATUS & ANALYSIS</h3>
+                <div class="space-y-3">
+                    <table class="system-table w-full text-left">
+                        <thead>
+                            <tr>
+                                <th class="data-label">Sensor</th>
+                                <th class="data-label">Status</th>
+                                <th class="data-label">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="data-label">LIDAR</td>
+                                <td><span id="mon-lidar-health" class="alert-nominal data-value">OPERATIONAL</span></td>
+                                <td class="text-sm text-gray-400">Laser range-finding array is online.</td>
+                            </tr>
+                            <tr>
+                                <td class="data-label">Camera</td>
+                                <td><span id="mon-camera-health" class="alert-nominal data-value">OPERATIONAL</span></td>
+                                <td class="text-sm text-gray-400">Visual navigation system is functional.</td>
+                            </tr>
+                            <tr>
+                                <td class="data-label">O$_{2}$ Gas Sensor</td>
+                                <td><span id="mon-o2-sensor-health" class="alert-nominal data-value">OPERATIONAL</span></td>
+                                <td class="text-sm text-gray-400">Gas concentration levels within tolerance.</td>
+                            </tr>
+                            <tr>
+                                <td class="data-label">Thermal Array</td>
+                                <td><span id="mon-thermal-health" class="alert-nominal data-value">OPERATIONAL</span></td>
+                                <td class="text-sm text-gray-400">Infrared imaging and temp probes online.</td>
+                            </tr>
+                            <tr>
+                                <td class="data-label">Comm Link</td>
+                                <td colspan="2"><span id="mon-comm-status" class="text-xl font-bold alert-nominal data-value">ESTABLISHED</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="data-card p-6 col-span-1">
+                <h3 class="text-xl font-bold alert-nominal mb-4">INDIVIDUAL SENSOR DATA SHEETS</h3>
+                <div class="space-y-4">
+                    <div class="data-card p-4 bg-gray-900 border-gray-700">
+                        <h4 class="text-lg font-bold text-blue-400">LIDAR Sensor</h4>
+                        <p class="text-sm text-gray-400">
+                            - **Operational Range:** 0.1m - 5.0m<br>
+                            - **Current Scan Rate:** 10Hz<br>
+                            - **Last Reading:** <span id="lidar-last-reading" class="data-value text-white">--</span><br>
+                            - **Analysis:** Real-time obstacle detection is functioning correctly. No anomalies detected.
+                        </p>
+                    </div>
+
+                    <div class="data-card p-4 bg-gray-900 border-gray-700">
+                        <h4 class="text-lg font-bold text-blue-400">O$_{2}$ Gas Sensor</h4>
+                        <p class="text-sm text-gray-400">
+                            - **Measurement Range:** 0% - 25%<br>
+                            - **Current Value:** <span id="o2-current-value" class="data-value text-white">--</span><br>
+                            - **Thresholds:** Min 18%, Max 23%<br>
+                            - **Analysis:** Gas concentration is stable. No signs of system leak or atmospheric anomaly.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+
+    <script>
+        // --- DATA ELEMENTS ---
+        const $ = (id) => document.getElementById(id);
+        
+        // Dashboard Elements
+        const metElement = $('met');
+        const statusElement = $('mission-status');
+        const speedElement = $('speed');
+        const distanceElement = $('distance-traveled');
+        const tiltRollElement = $('tilt-roll');
+        const localTempElement = $('local-temp');
+        const batteryValue = $('battery-value');
+        const batteryBar = $('battery-bar');
+        const o2Value = $('o2-value');
+        const o2Bar = $('o2-bar');
+        const mappingValue = $('mapping-value');
+        const mappingBar = $('mapping-bar');
+        const tempValue = $('temp-value');
+        const tempBar = $('temp-bar');
+        const commStatus = $('comm-status');
+        const guidanceModeElement = $('guidance-mode');
+        const logsContainer = $('mission-logs');
+        const logCount = $('log-count');
+        const roverMarker = $('rover-marker');
+        const roverPathContainer = $('rover-path-container');
+        const latData = $('lat-data');
+        const longData = $('long-data');
+        const lastCommand = $('last-command');
+        const timeIST = $('time-ist');
+        const timeUTC = $('time-utc');
+        const tabMapDash = $('tab-map-dash');
+        const tabLidarDash = $('tab-lidar-dash');
+        const mapViewContentDash = $('map-view-content-dash');
+        const lidarViewContentDash = $('lidar-view-content-dash');
+        const lidarRangeDash = $('lidar-range-dash');
+        const lidarSignalDash = $('lidar-signal-dash');
+        
+        // Sensor Health Elements
+        const lidarHealth = $('lidar-health');
+        const cameraHealth = $('camera-health');
+        const o2SensorHealth = $('o2-sensor-health');
+        const thermalHealth = $('thermal-health');
+        const manualControlBtn = $('manual-control-btn');
+        
+        // Alert Banner Elements
+        const sensorAlertBanner = $('sensor-alert-banner');
+        const alertSensorList = $('alert-sensor-list');
+        const toggleSimBtn = $('toggle-sim-btn');
+        const toggleSimText = $('toggle-sim-text');
+
+        // Multi-View Containers
+        const viewDashboard = $('view-dashboard');
+        const viewMap = $('view-map');
+        const viewCamera = $('view-camera');
+        const viewHistory = $('view-history');
+        const viewEmergency = $('view-emergency'); 
+        const navDashboard = $('nav-dashboard');
+        const navMap = $('nav-map');
+        const navCamera = $('nav-camera');
+        const navHistory = $('nav-history');
+        const navEmergency = $('nav-emergency'); 
+        
+        // Monitoring View Elements
+        const viewMonitoring = $('view-monitoring');
+        const navMonitoring = $('nav-monitoring');
+        const monBatteryValue = $('mon-battery-value');
+        const monBatteryBar = $('mon-battery-bar');
+        const monTempValue = $('mon-temp-value');
+        const monTempBar = $('mon-temp-bar');
+        const monMappingValue = $('mon-mapping-value');
+        const monMappingBar = $('mon-mapping-bar');
+        const monLidarHealth = $('mon-lidar-health');
+        const monCameraHealth = $('mon-camera-health');
+        const monO2SensorHealth = $('mon-o2-sensor-health');
+        const monThermalHealth = $('mon-thermal-health');
+        const monCommStatus = $('mon-comm-status');
+        const monLocalTemp = $('mon-local-temp');
+        const monO2Value = $('mon-o2-value');
+        const monTiltRoll = $('mon-tilt-roll');
+        const monSpeed = $('mon-speed');
+        const aiHealth = $('ai-health');
+        const aiStatusDetail = $('ai-status-detail');
+        const lidarLastReading = $('lidar-last-reading');
+        const o2CurrentValue = $('o2-current-value');
+
+
+        // Emergency View Elements
+        const emergencySubsystem = $('emergency-subsystem');
+        const failureCode = $('failure-code');
+        const emergencyMessage = $('emergency-message');
+        const emergencyBattery = $('emergency-battery');
+        const emergencyTilt = $('emergency-tilt');
+        const emergencyTemp = $('emergency-temp');
+
+
+        // Map View Elements (Full Screen)
+        const roverMarkerMap = $('rover-marker-map');
+        const roverPathContainerMap = $('rover-path-container-map');
+        const lidarRangeMap = $('lidar-range-map');
+        const lidarSignalMap = $('lidar-signal-map');
+
+        // New Camera View Elements
+        const cameraFeed = $('camera-live-feed');
+        const camHealth = $('cam-health');
+        const camTemp = $('cam-temp');
+        const camTempBar = $('cam-temp-bar');
+        const detectedObject = $('detected-object');
+        const objectLabel = $('object-label');
+        const objectDist = $('object-dist');
+        const cameraStatusOverlay = $('camera-status-overlay');
+
+
+        // --- AUTONOMY VARIABLES ---
+        let metSeconds = 0; 
+        let logCounter = 0;
+        let isCritical = false;
+        let currentView = 'dashboard';
+        let activeMapTab = 'map'; 
+        let autonomyInterval = null;
+        let roverPosition = { x: 0, y: 0 };
+        let totalDistance = 0;
+        let criticalSensorDamaged = false;
+        const dataUpdateInterval = 500;
+        let autonomyRunning = false;
+        
+        const roverSpeedKmH = 6;
+        const roverSpeedMs = roverSpeedKmH * 1000 / 3600; // Convert to m/s
+        const displaySpeedMs = (roverSpeedMs).toFixed(2);
+
+
+        // --- CORE AUTONOMY DATA ---
+        let missionData = {
+            status: 'IDLE',
+            speed: 0.00,
+            distanceTraveled: 0.00,
+            tiltRoll: 0.00,
+            localTemp: -100.0,
+            o2Level: 21.0,
+            battery: 100.0,
+            temp: 25.0,
+            camTemp: 25.0,
+            mappingProgress: 0.0,
+            guidanceMode: 'IDLE',
+            comm: 'ESTABLISHED',
+            lat: 10.0000,
+            long: 70.0000,
+            lidarHealth: 'OPERATIONAL', 
+            cameraHealth: 'OPERATIONAL',
+            o2SensorHealth: 'OPERATIONAL',
+            thermalHealth: 'OPERATIONAL'
+        };
+        
+        // --- AUTONOMY LOGIC AND FAKE DATA ---
+        
+        // Simulates a series of events over 2 minutes (120 seconds)
+        let eventSequence = [];
+        const generateEventSequence = () => {
+            const events = [
+                { time: 5, type: 'COMMAND', message: 'ROVER DEPLOYED: PATH PLANNING INITIATED. | Moving to MAPPING mode shortly.' },
+                { time: 10, type: 'EVENT', message: 'PATH PLANNING COMPLETE. | Transitioning to MAPPING sequence.' },
+                { time: 15, type: 'EVENT', message: 'MAPPING IN PROGRESS. | Rover is on its first traversal.' },
+                { time: 30, type: 'WARNING', message: 'HIGH TILT DETECTED (16.2°). | Switching to HAZARD-AVOIDANCE mode.' },
+                { time: 35, type: 'EVENT', message: 'HAZARD CLEARED. | Resuming MAPPING sequence.' },
+                { time: 50, type: 'EVENT', message: 'O2 LEVEL DROPPING. | Monitoring trend closely.' },
+                { time: 65, type: 'CRITICAL', message: 'SENSOR FAILURE: LIDAR IS DAMAGED. | Manual Override advised.' },
+                { time: 70, type: 'EVENT', message: 'AUTONOMY HALTED due to critical sensor failure. Awaiting manual control.' },
+                { time: 80, type: 'COMMAND', message: 'MANUAL CONTROL ACTIVATED. | Operator has taken over.' },
+                { time: 90, type: 'COMMAND', message: 'REBOOT: COMMUNICATIONS MODULE RESTART INITIATED.' },
+                { time: 100, type: 'EVENT', message: 'COMMUNICATION LINK RESTORED. | Link is stable at 10.2 Mbps.' },
+                { time: 110, type: 'EVENT', message: 'TASK COMPLETE. | Returning to base.' },
+                { time: 120, type: 'EVENT', message: 'ROVER RETURNED TO BASE. | Mission telemetry archived. Rover set to IDLE.' }
+            ];
+            eventSequence = events;
+        };
+
+
+        // --- NAVIGATION AND VIEW FUNCTIONS ---
+        const viewElements = { 'dashboard': viewDashboard, 'monitoring': viewMonitoring, 'map': viewMap, 'camera': viewCamera, 'history': viewHistory, 'emergency': viewEmergency };
+        const navButtons = { 'dashboard': navDashboard, 'monitoring': navMonitoring, 'map': navMap, 'camera': navCamera, 'history': navHistory, 'emergency': navEmergency };
+
+        const renderView = (viewName) => {
+            currentView = viewName;
+            
+            Object.values(viewElements).forEach(el => el.classList.add('hidden'));
+            Object.values(navButtons).forEach(el => el.classList.remove('bg-gray-700', 'text-blue-400', 'shadow-inner'));
+            
+            if (viewElements[viewName]) viewElements[viewName].classList.remove('hidden');
+            if (navButtons[viewName]) {
+                navButtons[viewName].classList.remove('text-gray-400');
+                navButtons[viewName].classList.add('bg-gray-700', 'text-blue-400', 'shadow-inner');
+            }
+            
+            if (viewName === 'map') {
+                switchMapTab('map', true);
+            }
+        };
+        
+        window.switchMapTab = (tabName, isFullMap = false) => {
+            activeMapTab = tabName;
+            
+            const mapContent = isFullMap ? $('map-view-content-map') : mapViewContentDash;
+            const lidarContent = isFullMap ? $('lidar-view-content-map') : lidarViewContentDash;
+            const tabMap = isFullMap ? $('tab-map') : tabMapDash;
+            const tabLidar = isFullMap ? $('tab-lidar') : tabLidarDash;
+
+            if (!tabMap || !tabLidar) return;
+
+            if (tabName === 'map') {
+                if (mapContent) mapContent.classList.remove('hidden');
+                if (lidarContent) lidarContent.classList.add('hidden');
+                tabMap.classList.add('bg-blue-600', 'text-white', 'shadow-inner');
+                tabMap.classList.remove('text-gray-400', 'hover:bg-gray-700');
+                tabLidar.classList.remove('bg-blue-600', 'text-white', 'shadow-inner');
+                tabLidar.classList.add('text-gray-400', 'hover:bg-gray-700');
+            } else {
+                if (mapContent) mapContent.classList.add('hidden');
+                if (lidarContent) lidarContent.classList.remove('hidden');
+                tabLidar.classList.add('bg-blue-600', 'text-white', 'shadow-inner');
+                tabLidar.classList.remove('text-gray-400', 'hover:bg-gray-700');
+                tabMap.classList.remove('bg-blue-600', 'text-white', 'shadow-inner');
+                tabMap.classList.add('text-gray-400', 'hover:bg-gray-700');
+            }
+        };
+
+        // --- CORE UTILITY FUNCTIONS ---
+
+        const formatMET = (totalSeconds) => {
+            const days = Math.floor(totalSeconds / (3600 * 24));
+            const hours = Math.floor((totalSeconds % (3600 * 24)) / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            
+            const pad = (num) => String(num).padStart(2, '0');
+            return `${pad(days)}:${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+        };
+
+        const updateClocks = () => {
+            if (!timeIST || !timeUTC) return;
+            const now = new Date();
+            const options = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+
+            const istTime = new Date(now.getTime() + (5.5 * 3600 * 1000));
+            timeIST.textContent = istTime.toLocaleTimeString('en-GB', options);
+            timeUTC.textContent = now.toLocaleTimeString('en-GB', { ...options, timeZone: 'UTC' });
+        }
+        
+        const updateLidar = () => {
+            const currentRange = (Math.random() * 5) + 0.1;
+            const signalText = missionData.guidanceMode === 'HAZARD-AVOIDANCE' ? `HAZARD DETECTED! (${currentRange.toFixed(1)}m)` : 
+                                (missionData.guidanceMode !== 'IDLE' ? 'HIGH RESOLUTION SCAN' : 'STANDBY');
+            const signalAnim = missionData.guidanceMode === 'HAZARD-AVOIDANCE' ? 'blink 0.5s infinite' : (missionData.guidanceMode !== 'IDLE' ? 'blink 1s infinite' : 'none');
+
+            if (lidarRangeDash && lidarSignalDash) {
+                lidarRangeDash.textContent = `${currentRange.toFixed(2)} m`;
+                lidarSignalDash.textContent = signalText;
+                lidarSignalDash.style.animation = signalAnim;
+            }
+            
+            if (lidarRangeMap && lidarSignalMap) {
+                lidarRangeMap.textContent = `${currentRange.toFixed(2)} m`;
+                lidarSignalMap.textContent = signalText;
+                lidarSignalMap.style.animation = signalAnim;
+            }
+            if (lidarLastReading) {
+                 lidarLastReading.textContent = `${currentRange.toFixed(2)} m`;
+            }
+        };
+
+        const updateCameraFeed = () => {
+            const hazardThreshold = 2.0; // Simulated object detection threshold
+            const detected = (Math.random() * 10) < 2; // 20% chance of detecting something
+
+            if (missionData.guidanceMode === 'IDLE' || missionData.cameraHealth === 'FAILED') {
+                cameraFeed.src = "https://placehold.co/1024x768/000000/444444?text=CAMERA%20STANDBY";
+                cameraStatusOverlay.textContent = 'STANDBY';
+                cameraStatusOverlay.classList.remove('text-green-400', 'text-red-400');
+                cameraStatusOverlay.classList.add('text-yellow-300');
+                detectedObject.classList.add('hidden');
+                return;
+            }
+
+            const objectNames = ['CRATER', 'ROCK FORMATION', 'DRILL TARGET'];
+            const randomObject = objectNames[Math.floor(Math.random() * objectNames.length)];
+            const randomDistance = (Math.random() * 5) + 0.5;
+
+            // Simulate object detection
+            if (detected && randomDistance <= hazardThreshold) {
+                cameraFeed.src = `https://placehold.co/1024x768/8B0000/FFFFFF?text=HAZARD%20DETECTED%21%0A${randomObject}`;
+                detectedObject.classList.remove('hidden');
+                detectedObject.style.top = `${30 + Math.random() * 40}%`;
+                detectedObject.style.left = `${30 + Math.random() * 40}%`;
+                objectLabel.textContent = `CRITICAL OBJECT: ${randomObject}`;
+                objectDist.textContent = `DISTANCE: ${randomDistance.toFixed(2)}m`;
+                cameraStatusOverlay.textContent = 'HAZARD DETECTED';
+                cameraStatusOverlay.classList.remove('text-green-400', 'text-yellow-300');
+                cameraStatusOverlay.classList.add('text-red-400');
+            } else {
+                cameraFeed.src = "https://placehold.co/1024x768/000000/444444?text=SIMULATED%20CAMERA%20FEED";
+                detectedObject.classList.add('hidden');
+                cameraStatusOverlay.textContent = 'FEED ACTIVE';
+                cameraStatusOverlay.classList.remove('text-yellow-300', 'text-red-400');
+                cameraStatusOverlay.classList.add('text-green-400');
+            }
+        };
+
+
+        const updateUI = () => {
+            if (metElement) metElement.textContent = `MET: ${formatMET(metSeconds)}`;
+            
+            // Update Dashboard UI
+            if (statusElement) statusElement.textContent = `${missionData.status} (SURFACE)`;
+            if (speedElement) speedElement.textContent = `${missionData.speed.toFixed(2)} m/s`;
+            if (distanceElement) distanceElement.textContent = `${missionData.distanceTraveled.toFixed(2)} m`;
+            if (tiltRollElement) tiltRollElement.textContent = `${missionData.tiltRoll.toFixed(2)} °`;
+            if (localTempElement) localTempElement.textContent = `${missionData.localTemp.toFixed(1)} °C`;
+            if (o2Value) o2Value.textContent = `${missionData.o2Level.toFixed(1)}%`;
+            if (tempValue) tempValue.textContent = `${missionData.temp.toFixed(1)} °C`;
+            if (batteryValue) batteryValue.textContent = `${missionData.battery.toFixed(0)}%`;
+            if (mappingValue) mappingValue.textContent = `${missionData.mappingProgress.toFixed(0)}%`;
+            if (guidanceModeElement) guidanceModeElement.textContent = missionData.guidanceMode;
+            if (commStatus) commStatus.textContent = missionData.comm;
+            if (latData) latData.textContent = missionData.lat.toFixed(4);
+            if (longData) longData.textContent = missionData.long.toFixed(4);
+            
+            // Update Monitoring View UI
+            if (monSpeed) monSpeed.textContent = `${missionData.speed.toFixed(2)} m/s`;
+            if (monTiltRoll) monTiltRoll.textContent = `${missionData.tiltRoll.toFixed(2)} °`;
+            if (monLocalTemp) monLocalTemp.textContent = `${missionData.localTemp.toFixed(1)} °C`;
+            if (monO2Value) monO2Value.textContent = `${missionData.o2Level.toFixed(1)}%`;
+            if (monBatteryValue) monBatteryValue.textContent = `${missionData.battery.toFixed(0)}%`;
+            if (monTempValue) monTempValue.textContent = `${missionData.temp.toFixed(1)} °C`;
+            if (monMappingValue) monMappingValue.textContent = `${missionData.mappingProgress.toFixed(0)}%`;
+            if (monCommStatus) monCommStatus.textContent = missionData.comm.toUpperCase();
+            if (o2CurrentValue) o2CurrentValue.textContent = `${missionData.o2Level.toFixed(1)}%`;
+
+
+            // Update progress bars
+            const updateProgressBar = (bar, value, criticalThreshold, warningThreshold, nominalColor, warningColor, criticalColor) => {
+                if (bar) {
+                    bar.style.width = `${value}%`;
+                    if (value <= criticalThreshold) {
+                        bar.style.backgroundColor = criticalColor;
+                    } else if (value <= warningThreshold) {
+                        bar.style.backgroundColor = warningColor;
+                    } else {
+                        bar.style.backgroundColor = nominalColor;
+                    }
+                }
+            };
+            updateProgressBar(batteryBar, missionData.battery, 10, 25, '#87CEEB', '#FFD700', '#FF6961');
+            updateProgressBar(monBatteryBar, missionData.battery, 10, 25, '#87CEEB', '#FFD700', '#FF6961');
+            updateProgressBar(o2Bar, missionData.o2Level, 15, 18, '#00ffaa', '#FFD700', '#FF6961');
+            updateProgressBar(mappingBar, missionData.mappingProgress, 0, 0, '#00F0FF', '#00F0FF', '#00F0FF');
+            updateProgressBar(monMappingBar, missionData.mappingProgress, 0, 0, '#00F0FF', '#00F0FF', '#00F0FF');
+
+            // Handle temperature bar logic
+            if (tempBar) {
+                const tempPercent = (missionData.temp / 80) * 100;
+                tempBar.style.width = `${tempPercent}%`;
+                if (missionData.temp > 60) {
+                    tempBar.style.backgroundColor = 'var(--color-critical)';
+                } else if (missionData.temp > 40) {
+                    tempBar.style.backgroundColor = 'var(--color-warning)';
+                } else {
+                    tempBar.style.backgroundColor = 'var(--color-nominal)';
+                }
+            }
+            if (monTempBar) {
+                 const tempPercent = (missionData.temp / 80) * 100;
+                 monTempBar.style.width = `${tempPercent}%`;
+                if (missionData.temp > 60) {
+                    monTempBar.style.backgroundColor = 'var(--color-critical)';
+                } else if (missionData.temp > 40) {
+                    monTempBar.style.backgroundColor = 'var(--color-warning)';
+                } else {
+                    monTempBar.style.backgroundColor = 'var(--color-nominal)';
+                }
+            }
+            if (camTempBar) {
+                const tempPercent = (missionData.camTemp / 80) * 100;
+                camTempBar.style.width = `${tempPercent}%`;
+                 if (missionData.camTemp > 60) {
+                    camTempBar.style.backgroundColor = 'var(--color-critical)';
+                } else if (missionData.camTemp > 40) {
+                    camTempBar.style.backgroundColor = 'var(--color-warning)';
+                } else {
+                    camTempBar.style.backgroundColor = 'var(--color-nominal)';
+                }
+            }
+        
+            // Update sensor health indicators
+            const updateHealthStatus = (element, health, monitoringElement = null) => {
+                if (!element) return;
+                element.textContent = health.toUpperCase();
+                element.classList.remove('alert-nominal', 'alert-critical', 'alert-warning');
+                if (health === 'OPERATIONAL' || health === 'ESTABLISHED' || health === 'OPTIMAL') {
+                    element.classList.add('alert-nominal');
+                } else if (health === 'DEGRADED') {
+                    element.classList.add('alert-warning');
+                } else if (health === 'FAILED') {
+                    element.classList.add('alert-critical');
+                }
+                if (monitoringElement) {
+                    monitoringElement.textContent = health.toUpperCase();
+                    monitoringElement.classList.remove('alert-nominal', 'alert-critical', 'alert-warning');
+                     if (health === 'OPERATIONAL' || health === 'ESTABLISHED' || health === 'OPTIMAL') {
+                        monitoringElement.classList.add('alert-nominal');
+                    } else if (health === 'DEGRADED') {
+                        monitoringElement.classList.add('alert-warning');
+                    } else if (health === 'FAILED') {
+                        monitoringElement.classList.add('alert-critical');
+                    }
+                }
+            };
+            updateHealthStatus(lidarHealth, missionData.lidarHealth, monLidarHealth);
+            updateHealthStatus(cameraHealth, missionData.cameraHealth, monCameraHealth);
+            updateHealthStatus(o2SensorHealth, missionData.o2SensorHealth, monO2SensorHealth);
+            updateHealthStatus(thermalHealth, missionData.thermalHealth, monThermalHealth);
+            updateHealthStatus(commStatus, missionData.comm, monCommStatus);
+            updateHealthStatus(aiHealth, missionData.autonomyAIHealth);
+        };
+        
+        const updateRoverPosition = () => {
+             if (missionData.guidanceMode !== 'MAPPING') return;
+
+            const mapWidth = 600; // Simluated map width in pixels
+            const mapHeight = 600; // Simulated map height in pixels
+            const travelSpeedPixels = 1; // Pixels per update cycle
+
+            roverPosition.x += travelSpeedPixels * (Math.random() - 0.5) * 2;
+            roverPosition.y += travelSpeedPixels * (Math.random() - 0.5) * 2;
+            
+            // Bound the position within the map
+            roverPosition.x = Math.max(-200, Math.min(200, roverPosition.x));
+            roverPosition.y = Math.max(-200, Math.min(200, roverPosition.y));
+
+            const roverMarker = $('rover-marker');
+            const roverMarkerMap = $('rover-marker-map');
+            if (roverMarker) {
+                 roverMarker.style.transform = `translate(${roverPosition.x}px, ${roverPosition.y}px)`;
+            }
+            if (roverMarkerMap) {
+                 roverMarkerMap.style.transform = `translate(${roverPosition.x}px, ${roverPosition.y}px)`;
+            }
+
+            // Add a new path marker
+            const createPathMarker = (container) => {
+                const pathMarker = document.createElement('div');
+                pathMarker.className = 'rover-path';
+                pathMarker.style.left = `calc(50% + ${roverPosition.x}px)`;
+                pathMarker.style.top = `calc(50% + ${roverPosition.y}px)`;
+                container.appendChild(pathMarker);
+            };
+            createPathMarker(roverPathContainer);
+            createPathMarker(roverPathContainerMap);
+
+            // Update Lat/Long
+            const latChange = (roverPosition.y / 200) * 0.001; // Scale to a small change
+            const longChange = (roverPosition.x / 200) * 0.001; // Scale to a small change
+            missionData.lat = 10.0000 + latChange;
+            missionData.long = 70.0000 + longChange;
+        };
+        
+        const logEvent = (type, message) => {
+            if (!logsContainer) return;
+
+            const logEntry = document.createElement('div');
+            logEntry.className = `p-2 border-l-4 log-entry`;
+            let colorClass = '';
+            let logIcon = '';
+
+            switch (type) {
+                case 'EVENT':
+                    colorClass = 'border-blue-500';
+                    logIcon = '🔵';
+                    break;
+                case 'WARNING':
+                    colorClass = 'border-yellow-500';
+                    logIcon = '🟡';
+                    break;
+                case 'CRITICAL':
+                    colorClass = 'border-red-500';
+                    logIcon = '🔴';
+                    break;
+                case 'COMMAND':
+                    colorClass = 'border-green-500';
+                    logIcon = '🟢';
+                    break;
+            }
+
+            logEntry.innerHTML = `<span class="text-gray-500 text-xs">${formatMET(metSeconds)}</span> ${logIcon} <span class="data-value">${message}</span>`;
+            logEntry.classList.add(colorClass);
+
+            logsContainer.prepend(logEntry);
+            logCounter++;
+            logCount.textContent = `(${logCounter} entries)`;
+        };
+
+        const checkEventSequence = () => {
+             const event = eventSequence.find(e => e.time === metSeconds);
+             if (event) {
+                 logEvent(event.type, event.message);
+                 // Handle specific event actions
+                 if (event.type === 'CRITICAL') {
+                     handleCriticalFailure(event.message);
+                 }
+                 if (event.message.includes("MAPPING IN PROGRESS")) {
+                    missionData.guidanceMode = "MAPPING";
+                 }
+                 if (event.message.includes("HAZARD-AVOIDANCE")) {
+                    missionData.guidanceMode = "HAZARD-AVOIDANCE";
+                 }
+                 if (event.message.includes("HAZARD CLEARED")) {
+                    missionData.guidanceMode = "MAPPING";
+                 }
+                 if (event.message.includes("MANUAL CONTROL ACTIVATED")) {
+                     missionData.guidanceMode = "MANUAL";
+                 }
+             }
+        };
+
+        const handleCriticalFailure = (message) => {
+            isCritical = true;
+            autonomyRunning = false;
+            clearInterval(autonomyInterval);
+            manualControlBtn.disabled = false;
+
+            // Trigger visual alerts
+            sensorAlertBanner.classList.remove('hidden');
+            alertSensorList.textContent = `LIDAR, AUTONOMY MODULE`;
+            
+            // Update Emergency View
+            emergencySubsystem.textContent = 'LIDAR, AUTONOMY';
+            failureCode.textContent = 'FAIL_STATE_201';
+            emergencyMessage.textContent = message;
+            
+            // Set statuses to FAILED
+            missionData.lidarHealth = 'FAILED';
+            missionData.autonomyAIHealth = 'DEGRADED';
+            missionData.guidanceMode = 'HALTED';
+
+            // Disable Autonomy Start button
+            toggleSimBtn.disabled = true;
+            toggleSimText.textContent = 'Autonomy Halted';
+            toggleSimBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+            toggleSimBtn.classList.add('bg-gray-600');
+        };
+
+        const emergencyStop = () => {
+            logEvent('CRITICAL', 'EMERGENCY STOP initiated by user. All systems shut down.');
+            autonomyRunning = false;
+            clearInterval(autonomyInterval);
+            missionData.status = 'STOPPED';
+            missionData.speed = 0;
+            missionData.guidanceMode = 'HALTED';
+            isCritical = true;
+
+            // Update UI elements
+            speedElement.textContent = '0.00 m/s';
+            guidanceModeElement.textContent = 'HALTED';
+            statusElement.textContent = 'STOPPED';
+            
+            // Disable all control buttons except "Manual Control"
+            manualControlBtn.disabled = false;
+        };
+
+        window.manualOverride = (command) => {
+             if (isCritical && command !== 'MANUAL_CONTROL') {
+                logEvent('WARNING', `Command ${command} aborted. Autonomy is halted. Please activate manual control first.`);
+                return;
+             }
+            lastCommand.textContent = command;
+            logEvent('COMMAND', `Manual command received: ${command}`);
+
+            if (command === 'MANUAL_CONTROL') {
+                logEvent('COMMAND', 'Manual control link established. Rover is now under direct control.');
+                manualControlBtn.disabled = true;
+                toggleSimBtn.disabled = true;
+                autonomyRunning = false;
+                clearInterval(autonomyInterval);
+                missionData.guidanceMode = 'MANUAL';
+                missionData.status = 'MANUAL CONTROL';
+                missionData.speed = 0;
+                
+                // Clear critical flags
+                isCritical = false;
+                sensorAlertBanner.classList.add('hidden');
+                emergencySubsystem.textContent = 'NOMINAL';
+                failureCode.textContent = 'ALL_SYSTEMS_GO';
+                emergencyMessage.textContent = 'ALL SYSTEMS NOMINAL. EMERGENCY VIEW IS FOR MONITORING ONLY.';
+                
+            } else if (command === 'START_MAPPING' && !autonomyRunning) {
+                 toggleAutonomy();
+                 missionData.guidanceMode = 'MAPPING';
+            } else if (command === 'RETURN_TO_BASE') {
+                logEvent('COMMAND', 'Return to base command accepted. Overriding current mission parameters.');
+                if (autonomyRunning) {
+                    autonomyRunning = false;
+                    clearInterval(autonomyInterval);
+                }
+                 // Reset and then start a "return" sequence
+                 missionData.guidanceMode = 'RETURN_TO_BASE';
+                 const returnInterval = setInterval(() => {
+                    missionData.distanceTraveled = Math.max(0, missionData.distanceTraveled - 0.1);
+                    missionData.speed = 1.0;
+                    missionData.mappingProgress = Math.max(0, missionData.mappingProgress - 0.5);
+                    if (missionData.distanceTraveled <= 0.1) {
+                        logEvent('EVENT', 'Rover has returned to base. Mission complete.');
+                        clearInterval(returnInterval);
+                        missionData.status = 'IDLE';
+                        missionData.guidanceMode = 'IDLE';
+                        missionData.speed = 0;
+                        toggleAutonomy(false); // Stop and reset
+                        resetSimulation();
+                    }
+                 }, 500);
+            }
+        };
+
+        const resetSimulation = () => {
+            metSeconds = 0;
+            logCounter = 0;
+            isCritical = false;
+            autonomyRunning = false;
+            roverPosition = { x: 0, y: 0 };
+            totalDistance = 0;
+            criticalSensorDamaged = false;
+            
+            Object.assign(missionData, {
+                status: 'IDLE',
+                speed: 0.00,
+                distanceTraveled: 0.00,
+                tiltRoll: 0.00,
+                localTemp: -100.0,
+                o2Level: 21.0,
+                battery: 100.0,
+                temp: 25.0,
+                camTemp: 25.0,
+                mappingProgress: 0.0,
+                guidanceMode: 'IDLE',
+                comm: 'ESTABLISHED',
+                lat: 10.0000,
+                long: 70.0000,
+                lidarHealth: 'OPERATIONAL', 
+                cameraHealth: 'OPERATIONAL',
+                o2SensorHealth: 'OPERATIONAL',
+                thermalHealth: 'OPERATIONAL'
+            });
+
+            logsContainer.innerHTML = '';
+            logCount.textContent = '(0 entries)';
+            sensorAlertBanner.classList.add('hidden');
+            toggleSimBtn.disabled = false;
+            toggleSimText.textContent = 'Start Autonomy';
+            toggleSimBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+            toggleSimBtn.classList.remove('bg-gray-600');
+            manualControlBtn.disabled = false;
+            emergencySubsystem.textContent = 'NOMINAL';
+            failureCode.textContent = 'ALL_SYSTEMS_GO';
+            emergencyMessage.textContent = 'ALL SYSTEMS NOMINAL. EMERGENCY VIEW IS FOR MONITORING ONLY.';
+        };
+
+
+        const toggleAutonomy = (start = true) => {
+             if (isCritical) {
+                logEvent('WARNING', 'Cannot start autonomy: A critical sensor failure has been detected.');
+                return;
+             }
+
+            if (start && !autonomyRunning) {
+                autonomyRunning = true;
+                toggleSimText.textContent = 'Pause Autonomy';
+                toggleSimBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+                toggleSimBtn.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
+                autonomyInterval = setInterval(updateData, dataUpdateInterval);
+                logEvent('COMMAND', 'AUTONOMY MODE ACTIVATED. Rover is now self-navigating.');
+            } else if (autonomyRunning) {
+                autonomyRunning = false;
+                toggleSimText.textContent = 'Resume Autonomy';
+                toggleSimBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
+                toggleSimBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+                clearInterval(autonomyInterval);
+                logEvent('COMMAND', 'Autonomy paused by user.');
+                missionData.status = 'PAUSED';
+                missionData.speed = 0.00;
+                missionData.guidanceMode = 'PAUSED';
+            }
+        };
+
+        const updateData = () => {
+             if (!autonomyRunning) {
+                missionData.speed = 0;
+                missionData.tiltRoll = 0;
+                return;
+            }
+
+            metSeconds++;
+            
+            // Randomly update telemetry data
+            missionData.speed = Math.min(roverSpeedMs, missionData.speed + (Math.random() * 0.1 - 0.05));
+            missionData.distanceTraveled += missionData.speed * (dataUpdateInterval / 1000); // meters
+            missionData.tiltRoll = Math.min(20, Math.max(0, missionData.tiltRoll + (Math.random() * 0.5 - 0.25)));
+            missionData.localTemp = -100 + (Math.random() * 50); // Simulating cold temperatures
+            missionData.o2Level = Math.max(15, missionData.o2Level - (Math.random() * 0.01));
+            missionData.battery = Math.max(0, missionData.battery - 0.05); // Drain battery slowly
+            missionData.temp = Math.min(80, missionData.temp + (Math.random() * 0.5));
+            missionData.camTemp = Math.min(70, missionData.camTemp + (Math.random() * 0.2));
+            missionData.mappingProgress = Math.min(100, missionData.mappingProgress + 0.1);
+
+            // Check for triggered events
+            checkEventSequence();
+
+            // Update UI with new data
+            updateUI();
+            updateRoverPosition();
+            updateLidar();
+            updateCameraFeed();
+
+            // Check for critical thresholds
+            if (missionData.battery < 15 && !isCritical) {
+                logEvent('WARNING', 'BATTERY LOW: Returning to base advised.');
+            }
+            if (missionData.o2Level < 18 && !isCritical) {
+                logEvent('WARNING', 'O2 LEVEL BELOW TOLERANCE. Check sensor integrity.');
+            }
+        };
+
+        // Initialize the dashboard
+        document.addEventListener('DOMContentLoaded', () => {
+            renderView('dashboard');
+            updateClocks();
+            setInterval(updateClocks, 1000); // Update clock every second
+            
+            // Set initial state
+            updateUI();
+            generateEventSequence();
+            logEvent('EVENT', 'MISSION CONTROL LINK ESTABLISHED. Rover systems online.');
+            logEvent('EVENT', 'Initial health checks are nominal. Awaiting command.');
+        });
+
+    </script>
+
+</body>
+</html>
