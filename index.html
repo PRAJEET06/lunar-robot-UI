@@ -241,7 +241,7 @@
                 
                 <div class="system-status">
                     <div class="flex justify-between items-center text-sm data-label">
-                        <span>O$_{2}$ SENSOR LEVEL</span>
+                        <span>O₂ LEVEL</span>
                         <span id="o2-value" class="alert-nominal font-bold data-value">21.0%</span>
                     </div>
                     <div class="progress-bar mt-1">
@@ -273,7 +273,7 @@
                 <div class="grid grid-cols-2 gap-2 text-sm">
                     <div class="data-label">LIDAR: <span id="lidar-health" class="alert-nominal data-value">OPERATIONAL</span></div>
                     <div class="data-label">CAMERA: <span id="camera-health" class="alert-nominal data-value">OPERATIONAL</span></div>
-                    <div class="data-label">O$_{2}$ SENSOR: <span id="o2-sensor-health" class="alert-nominal data-value">OPERATIONAL</span></div>
+                    <div class="data-label">O₂ SENSOR: <span id="o2-sensor-health" class="alert-nominal data-value">OPERATIONAL</span></div>
                     <div class="data-label">THERMAL: <span id="thermal-health" class="alert-nominal data-value">OPERATIONAL</span></div>
                 </div>
 
@@ -392,7 +392,7 @@
                     <div class="lidar-grid-lines"></div>
                     <div class="scan-line-v"></div>
                     <div class="scan-line-h"></div>
-                    <div class="lidar-signal" id="lidar-signal-map">... ACTIVE SCAN ...</div>
+                    <div class="lidar-signal" id="lidar-signal-map">ACTIVE SCAN</div>
                 </div>
             </div>
         </div>
@@ -460,15 +460,15 @@
                 <div class="text-gray-500 h-40 flex items-center justify-center bg-gray-800 rounded-lg">
                     [Mock Chart: Max Tilt Angle vs. Distance Traveled]
                 </div>
-                <p class="mt-4 text-sm text-gray-400">Observation: Max tilt reached $18.5^\circ$ at 125m mark, triggering three HAZARD-AVOIDANCE events.</p>
+                <p class="mt-4 text-sm text-gray-400">Observation: Max tilt reached 18 degrees at 125m mark, triggering three HAZARD-AVOIDANCE events.</p>
             </div>
             
             <div class="data-card p-6">
-                <h3 class="text-xl font-bold alert-nominal mb-4">O$_{2}$ & Temperature Log</h3>
+                <h3 class="text-xl font-bold alert-nominal mb-4">Gas sensor & Temperature Log</h3>
                 <div class="text-gray-500 h-40 flex items-center justify-center bg-gray-800 rounded-lg">
-                    [Mock Chart: O$_{2}$ and Local Temp Over 24 Hours]
+                    [Mock Chart: O₂ and Local Temp Over 24 Hours]
                 </div>
-                <p class="mt-4 text-sm text-gray-400">Observation: $\text{O}_2$ remains stable at $21.0 \pm 0.1\%$. Local temperature variance exceeds expected thermal range.</p>
+                <p class="mt-4 text-sm text-gray-400">Observation: O₂ remains stable at 2ppm. Local temperature variance exceeds expected thermal range.</p>
             </div>
         </div>
     </div>
@@ -1411,4 +1411,5 @@
 
 </body>
 </html>
+
 
